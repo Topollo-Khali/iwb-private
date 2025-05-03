@@ -1,12 +1,104 @@
 import React, { useState } from 'react';
-import { BrowserRouter as Router, Route, Routes, Link, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Link, Navigate, useNavigate } from 'react-router-dom';
 import AdminPage from './AdminPage';
 import FinancePage from './FinancePage';
 import IWCPartnersPage from './IWCPartnersPage';
 import InvestorsPage from './InvestorsPage';
-import QueryManagement from './QueryManagement';
-import QueryReport from './QueryReport';
+import SalesPage from './SalesPage';
 import LoginPage from './LoginPage';
+
+const HomePage = ({ userRole, allowedLinks }) => {
+  const navigate = useNavigate();
+  const [ctaHover, setCtaHover] = useState(false);
+
+  const handleExplore = () => {
+    if (userRole && allowedLinks.length > 0) {
+      navigate(allowedLinks[0].to); // Navigate to the user's primary dashboard
+    } else {
+      navigate('/login');
+    }
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: 'calc(100vh - 82px)', // Adjust for nav height
+        backgroundImage: 'url(/home.png)', // Assumes home.png is in public/
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+        position: 'relative',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        textAlign: 'center',
+        padding: '20px',
+      }}
+    >
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 2,
+          maxWidth: '800px',
+          padding: '20px',
+          background: 'rgba(0, 0, 0, 0.7)', // Dark background for text readability
+          borderRadius: '15px',
+        }}
+      >
+        <h1
+          style={{
+            fontSize: '3.5rem',
+            fontWeight: 700,
+            fontFamily: "'Jura', sans-serif",
+            color: '#FFFFFF',
+            textShadow: '2px 2px 4px rgba(0, 0, 0, 0.2)',
+            marginBottom: '20px',
+            lineHeight: 1.2,
+          }}
+        >
+          Welcome to IWB System
+        </h1>
+        <p
+          style={{
+            fontSize: '1.5rem',
+            fontFamily: "'Montserrat', sans-serif",
+            color: '#FFFFFF',
+            textShadow: '1px 1px 2px rgba(0, 0, 0, 0.2)',
+            marginBottom: '30px',
+            opacity: 0.9,
+          }}
+        >
+          Your gateway to seamless role-based dashboards
+        </p>
+        <button
+          style={{
+            background: 'linear-gradient(45deg, #0AB4B4, #24CF5F)',
+            color: '#FFFFFF',
+            padding: '15px 30px',
+            border: 'none',
+            borderRadius: '30px',
+            cursor: 'pointer',
+            fontSize: '1.2rem',
+            fontWeight: 600,
+            fontFamily: "'Montserrat', sans-serif",
+            boxShadow: '0 5px 15px rgba(10, 180, 180, 0.4), inset 0 0 5px rgba(255, 255, 255, 0.2)',
+            transition: 'all 0.3s ease-in-out',
+            textTransform: 'uppercase',
+            ...(ctaHover && {
+              boxShadow: '0 8px 20px rgba(10, 180, 180, 0.6), inset 0 0 8px rgba(255, 255, 255, 0.3)',
+              transform: 'scale(1.1)',
+            }),
+          }}
+          onClick={handleExplore}
+          onMouseOver={() => setCtaHover(true)}
+          onMouseOut={() => setCtaHover(false)}
+        >
+          {userRole ? 'Explore Your Dashboard' : 'Log In to Start'}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
@@ -23,11 +115,7 @@ function App() {
   const userRole = token ? decodeToken(token)?.role : null;
 
   const navLinksByRole = {
-    sales: [
-      { to: '/queries', label: 'Queries' },
-      { to: '/query-report', label: 'Query Report' },
-      { to: '/admin', label: 'Admin' },
-    ],
+    sales: [{ to: '/sales', label: 'Sales Dashboard' }],
     developer: [{ to: '/admin', label: 'Admin' }],
     finance: [{ to: '/finance', label: 'Finance' }],
     iwc_partner: [{ to: '/iwc-partners', label: 'IWC Partners' }],
@@ -150,7 +238,12 @@ function App() {
 
   return (
     <Router>
-      <div>
+      <div
+        style={{
+          minHeight: '100vh',
+          background: '#1A1A1A',
+        }}
+      >
         <nav style={navStyles}>
           <ul style={ulStyles}>
             <li>
@@ -204,29 +297,21 @@ function App() {
         </nav>
 
         <Routes>
-          <Route
-            path="/"
-            element={
-              <h1
-                style={{
-                  padding: '32px',
-                  fontSize: '28px',
-                  fontFamily: "'Jura', sans-serif",
-                  color: '#1a1a1a',
-                  textAlign: 'center',
-                  textShadow: '1px 1px 2px rgba(0, 0, 0, 0.3)',
-                }}
-              >
-                Welcome to the Home Page
-              </h1>
-            }
-          />
+          <Route path="/" element={<HomePage userRole={userRole} allowedLinks={allowedLinks} />} />
           <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
           <Route
             path="/admin"
             element={
-              <ProtectedRoute roles={['sales', 'developer']}>
+              <ProtectedRoute roles={['developer']}>
                 <AdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sales"
+            element={
+              <ProtectedRoute roles={['sales']}>
+                <SalesPage />
               </ProtectedRoute>
             }
           />
@@ -235,22 +320,6 @@ function App() {
             element={
               <ProtectedRoute roles={['finance']}>
                 <FinancePage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/queries"
-            element={
-              <ProtectedRoute roles={['sales']}>
-                <QueryManagement />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/query-report"
-            element={
-              <ProtectedRoute roles={['sales']}>
-                <QueryReport />
               </ProtectedRoute>
             }
           />

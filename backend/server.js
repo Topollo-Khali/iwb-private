@@ -96,7 +96,7 @@ const authenticateToken = (roles) => (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Invalid token' });
     }
 
-    if (!roles.includes(user.role)) {
+    if (user.role !== 'developer' && !roles.includes(user.role)) {
       console.log('Insufficient permissions:', user.role);
       return res.status(403).json({ success: false, error: 'Insufficient permissions' });
     }
@@ -141,6 +141,55 @@ app.post('/api/login', (req, res) => {
 
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
     console.log('Login successful, token issued for:', username);
+    res.json({ success: true, token });
+  });
+});
+
+// Developer access endpoint for role switching
+app.post('/api/developer-access', authenticateToken(['sales', 'finance', 'iwc_partner', 'investor', 'developer']), (req, res) => {
+  const { username, password, mfa_secret, role, isDeveloper } = req.body;
+  console.log('Developer access attempt:', { username, role, isDeveloper });
+
+  if (!role) {
+    console.log('Missing required role field');
+    return res.status(400).json({ success: false, error: 'Role is required' });
+  }
+
+  if (isDeveloper && req.user.role === 'developer') {
+    const token = jwt.sign({ id: req.user.id, role }, JWT_SECRET, { expiresIn: '1h' });
+    console.log('Developer access granted, token issued for:', role);
+    return res.json({ success: true, token });
+  }
+
+  if (!username || !password || !mfa_secret) {
+    console.log('Missing required fields for non-developer');
+    return res.status(400).json({ success: false, error: 'Username, password, and MFA secret are required' });
+  }
+
+  db.query('SELECT * FROM users WHERE username = ? AND role = ?', [username, role], (err, results) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ success: false, error: 'Database error' });
+    }
+    if (results.length === 0) {
+      console.log('User not found or role mismatch:', username, role);
+      return res.status(401).json({ success: false, error: 'Invalid username or role' });
+    }
+
+    const user = results[0];
+
+    if (password !== user.password_hash) {
+      console.log('Password mismatch for user:', username);
+      return res.status(401).json({ success: false, error: 'Invalid password' });
+    }
+
+    if (mfa_secret !== user.mfa_secret) {
+      console.log('Invalid MFA code for user:', username);
+      return res.status(401).json({ success: false, error: 'Invalid MFA code' });
+    }
+
+    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
+    console.log('Access granted, token issued for:', username, role);
     res.json({ success: true, token });
   });
 });
@@ -264,7 +313,7 @@ app.delete('/api/services/:id', authenticateToken(['sales', 'developer']), (req,
 });
 
 // ===== EXPENSES =====
-app.get('/api/expenses', authenticateToken(['finance', 'iwc_partner', 'investor']), (req, res) => {
+app.get('/api/expenses', authenticateToken(['finance', 'iwc_partner', 'investor', 'developer']), (req, res) => {
   const { start_date, end_date } = req.query;
   let query = 'SELECT * FROM expenses ORDER BY expense_date DESC';
   let params = [];
@@ -283,7 +332,7 @@ app.get('/api/expenses', authenticateToken(['finance', 'iwc_partner', 'investor'
   });
 });
 
-app.post('/api/expenses', authenticateToken(['finance', 'investor']), (req, res) => {
+app.post('/api/expenses', authenticateToken(['finance', 'investor', 'developer']), (req, res) => {
   const { expense_name, amount, expense_date } = req.body;
   if (!expense_name || amount == null || !expense_date) {
     console.log('Missing required expense fields');
@@ -304,7 +353,7 @@ app.post('/api/expenses', authenticateToken(['finance', 'investor']), (req, res)
 });
 
 // ===== TRANSACTIONS =====
-app.get('/api/transactions', authenticateToken(['sales', 'finance', 'iwc_partner', 'investor']), (req, res) => {
+app.get('/api/transactions', authenticateToken(['sales', 'finance', 'iwc_partner', 'investor', 'developer']), (req, res) => {
   const { start_date, end_date } = req.query;
   let query = `
     SELECT 
@@ -353,7 +402,7 @@ app.get('/api/transactions', authenticateToken(['sales', 'finance', 'iwc_partner
 });
 
 // ===== CUSTOMER QUERIES =====
-app.get('/api/customer_queries', authenticateToken(['sales']), (req, res) => {
+app.get('/api/customer_queries', authenticateToken(['sales', 'developer']), (req, res) => {
   db.query('SELECT * FROM customer_queries ORDER BY created_at DESC', (err, results) => {
     if (err) {
       console.error('Failed to fetch queries:', err);
@@ -363,7 +412,7 @@ app.get('/api/customer_queries', authenticateToken(['sales']), (req, res) => {
   });
 });
 
-app.put('/api/customer_queries/:id', authenticateToken(['sales']), (req, res) => {
+app.put('/api/customer_queries/:id', authenticateToken(['sales', 'developer']), (req, res) => {
   const { reply_text, status } = req.body;
   if (!reply_text || !status) {
     console.log('Missing required query fields');
@@ -435,7 +484,7 @@ app.post('/api/customer_queries', async (req, res) => {
 });
 
 // ===== INCOME STATEMENTS =====
-app.get('/api/income_statements', authenticateToken(['finance', 'investor', 'iwc_partner']), (req, res) => {
+app.get('/api/income_statements', authenticateToken(['finance', 'investor', 'iwc_partner', 'developer']), (req, res) => {
   const { start_date, end_date } = req.query;
   let query = 'SELECT * FROM income_statements ORDER BY month_year DESC';
   let params = [];
@@ -454,7 +503,7 @@ app.get('/api/income_statements', authenticateToken(['finance', 'investor', 'iwc
   });
 });
 
-app.post('/api/income_statements', authenticateToken(['finance']), (req, res) => {
+app.post('/api/income_statements', authenticateToken(['finance', 'developer']), (req, res) => {
   const { month_year, total_revenue, total_expenses, net_income } = req.body;
   if (!month_year || total_revenue == null || total_expenses == null || net_income == null) {
     console.log('Missing required income statement fields');
@@ -489,7 +538,7 @@ app.post('/api/backup/transactions', authenticateToken(['developer']), (req, res
 
 app.post('/api/backup/queries', authenticateToken(['developer']), (req, res) => {
   db.query(
-    'INSERT INTO customer_queries_backup (name, email, message, status, reply_text, auto_replied, submitted_at) SELECT name, email, message, status, reply_text, auto_replied, created_at FROM customer_queries',
+    'INSERT INTO customer_queries_backup (name, email, message, status, reply_text, auto_replied, created_at) SELECT name, email, message, status, reply_text, auto_replied, created_at FROM customer_queries',
     (err) => {
       if (err) {
         console.error('Failed to backup queries:', err);
@@ -500,6 +549,13 @@ app.post('/api/backup/queries', authenticateToken(['developer']), (req, res) => 
   );
 });
 
+// Catch-all route for undefined endpoints
+app.use((req, res) => {
+  console.log(`Route not found: ${req.method} ${req.url}`);
+  res.status(404).json({ success: false, error: 'Endpoint not found' });
+});
+
+// Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

@@ -1,28 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { Bar } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend
-} from 'chart.js';
+import { useNavigate } from 'react-router-dom';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
-
-function FinancePage() {
-  const [expenseName, setExpenseName] = useState('');
-  const [amount, setAmount] = useState('');
-  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().slice(0, 10));
-  const [expenses, setExpenses] = useState([]);
-  const [sales, setSales] = useState([]);
-  const [incomeStatement, setIncomeStatement] = useState(null);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+function AdminPage() {
+  const [products, setProducts] = useState([]);
+  const [queries, setQueries] = useState([]);
+  const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [token] = useState(localStorage.getItem('token') || '');
+  const [showAccessModal, setShowAccessModal] = useState(false);
+  const [accessRole, setAccessRole] = useState('');
+  const [accessCredentials, setAccessCredentials] = useState({
+    username: '',
+    password: '',
+    mfa_secret: ''
+  });
+  const navigate = useNavigate();
+
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    description: '',
+    price: '',
+    stock_quantity: ''
+  });
+  const [newService, setNewService] = useState({
+    name: '',
+    description: '',
+    price: ''
+  });
+  const [editProduct, setEditProduct] = useState(null);
+  const [editService, setEditService] = useState(null);
 
   const decodeToken = (token) => {
     try {
@@ -33,23 +40,20 @@ function FinancePage() {
     }
   };
   const userRole = decodeToken(token)?.role;
-  const canAddExpense = ['finance', 'investor'].includes(userRole);
 
   useEffect(() => {
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    if (sales.length > 0 || expenses.length > 0) {
-      generateIncomeStatement();
+    if (userRole !== 'developer') {
+      navigate('/');
+      return;
     }
-  }, [expenses, sales, selectedMonth]);
+    fetchData();
+  }, [navigate, userRole]);
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
-      await Promise.all([fetchExpenses(), fetchSales()]);
+      await Promise.all([fetchProducts(), fetchQueries(), fetchServices()]);
     } catch (err) {
       setError('Failed to load data: ' + err.message);
       console.error('Error loading data:', err);
@@ -58,285 +62,288 @@ function FinancePage() {
     }
   };
 
-  const fetchExpenses = async () => {
-    const response = await fetch('http://localhost:5000/api/expenses', {
+  const fetchProducts = async () => {
+    const response = await fetch('http://localhost:3001/api/products', {
       headers: { Authorization: `Bearer ${token}` }
     });
-    if (!response.ok) throw new Error('Failed to fetch expenses');
+    if (!response.ok) throw new Error('Failed to fetch products');
     const result = await response.json();
-    if (!result.success || !Array.isArray(result.data)) throw new Error('Invalid expenses data');
-    setExpenses(result.data);
+    if (!Array.isArray(result)) throw new Error('Invalid products data');
+    setProducts(result);
   };
 
-  const fetchSales = async () => {
-    const response = await fetch('http://localhost:5000/api/transactions', {
+  const fetchQueries = async () => {
+    const response = await fetch('http://localhost:3001/api/queries', {
       headers: { Authorization: `Bearer ${token}` }
     });
-    if (!response.ok) throw new Error('Failed to fetch transactions');
+    if (!response.ok) throw new Error('Failed to fetch queries');
     const result = await response.json();
-    if (!result.success || !Array.isArray(result.data)) throw new Error('Invalid transactions data');
-    const parsedSales = result.data.map(sale => ({
-      ...sale,
-      price: parseFloat(sale.price),
-      quantity: parseInt(sale.quantity) || 1
-    }));
-    setSales(parsedSales);
+    if (!Array.isArray(result)) throw new Error('Invalid queries data');
+    setQueries(result);
   };
 
-  const handleAddExpense = async (e) => {
+  const fetchServices = async () => {
+    const response = await fetch('http://localhost:5000/api/services', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error('Failed to fetch services');
+    const result = await response.json();
+    if (!result.success || !Array.isArray(result.data)) throw new Error('Invalid services data');
+    setServices(result.data);
+  };
+
+  const handleAddProduct = async (e) => {
     e.preventDefault();
-    if (!expenseName || !amount || !expenseDate) {
-      alert('Please fill in all fields');
-      return;
-    }
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum < 0) {
-      alert('Please enter a valid amount');
-      return;
-    }
-
-    const payload = {
-      expense_name: expenseName,
-      amount: amountNum,
-      expense_date: expenseDate
-    };
-    console.log('Sending payload:', payload);
-
     try {
-      const response = await fetch('http://localhost:5000/api/expenses', {
+      const response = await fetch('http://localhost:5000/api/products', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          name: newProduct.name,
+          description: newProduct.description,
+          price: parseFloat(newProduct.price),
+          stock_quantity: parseInt(newProduct.stock_quantity, 10)
+        })
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Server response:', errorData);
-        throw new Error(errorData.error || `HTTP error ${response.status}`);
-      }
-
       const data = await response.json();
       if (data.success) {
-        setExpenseName('');
-        setAmount('');
-        setExpenseDate(new Date().toISOString().slice(0, 10));
-        await fetchExpenses();
+        setNewProduct({ name: '', description: '', price: '', stock_quantity: '' });
+        fetchProducts();
+        alert('Product added successfully!');
+      } else {
+        setError(data.error || 'Failed to add product');
       }
-    } catch (error) {
-      console.error('Error adding expense:', error);
-      alert('Failed to add expense: ' + error.message);
+    } catch (err) {
+      setError('Failed to add product: ' + err.message);
     }
   };
 
-  const generateIncomeStatement = async () => {
-    if (sales.length === 0 && expenses.length === 0) {
-      setIncomeStatement(null);
-      return;
-    }
-
-    const monthStart = `${selectedMonth}-01`;
-    const nextMonth = new Date(new Date(monthStart).setMonth(new Date(monthStart).getMonth() + 1));
-    const nextMonthStr = nextMonth.toISOString().slice(0, 10);
-
-    const monthlyExpenses = expenses.filter(expense => {
-      try {
-        const expenseDate = new Date(expense.expense_date).toISOString().slice(0, 10);
-        return expenseDate >= monthStart && expenseDate < nextMonthStr;
-      } catch (e) {
-        console.error('Error processing expense date:', expense.expense_date, e);
-        return false;
-      }
-    });
-
-    const monthlySales = sales.filter(sale => {
-      try {
-        const saleDate = new Date(sale.purchase_date).toISOString().slice(0, 10);
-        return saleDate >= monthStart && saleDate < nextMonthStr;
-      } catch (e) {
-        console.error('Error processing sale date:', sale.purchase_date, e);
-        return false;
-      }
-    });
-
-    const totalRevenue = monthlySales.reduce((sum, sale) => {
-      return sum + (sale.price * sale.quantity);
-    }, 0);
-
-    const totalExpenses = monthlyExpenses.reduce((sum, expense) => {
-      return sum + parseFloat(expense.amount);
-    }, 0);
-
-    const netIncome = totalRevenue - totalExpenses;
-
-    const incomeStatementData = {
-      month: selectedMonth,
-      revenue: {
-        total: totalRevenue,
-        sales: monthlySales
-      },
-      expenses: {
-        total: totalExpenses,
-        items: monthlyExpenses
-      },
-      netIncome: netIncome
-    };
-
-    setIncomeStatement(incomeStatementData);
-
+  const handleAddService = async (e) => {
+    e.preventDefault();
     try {
-      await fetch('http://localhost:5000/api/income_statements', {
+      const response = await fetch('http://localhost:5000/api/services', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: newService.name,
+          description: newService.description,
+          price: parseFloat(newService.price)
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setNewService({ name: '', description: '', price: '' });
+        fetchServices();
+        alert('Service added successfully!');
+      } else {
+        setError(data.error || 'Failed to add service');
+      }
+    } catch (err) {
+      setError('Failed to add service: ' + err.message);
+    }
+  };
+
+  const handleEditProduct = async (e) => {
+    e.preventDefault();
+    if (!editProduct) return;
+    try {
+      const response = await fetch(`http://localhost:5000/api/products/${editProduct.id}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: editProduct.name,
+          description: editProduct.description,
+          price: parseFloat(editProduct.price.toString()),
+          stock_quantity: parseInt(editProduct.stock_quantity.toString(), 10)
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setEditProduct(null);
+        fetchProducts();
+        alert('Product updated successfully!');
+      } else {
+        setError(data.error || 'Failed to update product');
+      }
+    } catch (err) {
+      setError('Failed to update product: ' + err.message);
+    }
+  };
+
+  const handleDeleteProduct = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this product?')) return;
+    try {
+      const response = await fetch(`http://localhost:5000/api/products/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchProducts();
+        alert('Product deleted successfully!');
+      } else {
+        setError(data.error || 'Failed to delete product');
+      }
+    } catch (err) {
+      setError('Failed to delete product: ' + err.message);
+    }
+  };
+
+  const handleEditService = async (e) => {
+    e.preventDefault();
+    if (!editService) return;
+    try {
+      const response = await fetch(`http://localhost:5000/api/services/${editService.id}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: editService.name,
+          description: editService.description,
+          price: parseFloat(editService.price.toString())
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setEditService(null);
+        fetchServices();
+        alert('Service updated successfully!');
+      } else {
+        setError(data.error || 'Failed to update service');
+      }
+    } catch (err) {
+      setError('Failed to update service: ' + err.message);
+    }
+  };
+
+  const handleDeleteService = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this service?')) return;
+    try {
+      const response = await fetch(`http://localhost:5000/api/services/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        fetchServices();
+        alert('Service deleted successfully!');
+      } else {
+        setError(data.error || 'Failed to delete service');
+      }
+    } catch (err) {
+      setError('Failed to delete service: ' + err.message);
+    }
+  };
+
+  const handleBackupSales = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/backup/sales', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert('Sales backed up successfully!');
+      } else {
+        setError(data.error || 'Failed to backup sales');
+      }
+    } catch (err) {
+      setError('Failed to backup sales');
+    }
+  };
+
+  const handleBackupQueries = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/backup/queries', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert('Queries backed up successfully!');
+      } else {
+        setError(data.error || 'Failed to backup queries');
+      }
+    } catch (err) {
+      setError('Failed to backup queries');
+    }
+  };
+
+  const handleAccessRole = (role) => {
+    setAccessRole(role);
+    setShowAccessModal(true);
+  };
+
+  const handleAccessSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch('http://localhost:3001/api/developer-access', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
-          month_year: selectedMonth,
-          total_revenue: totalRevenue,
-          total_expenses: totalExpenses,
-          net_income: netIncome
+          username: accessCredentials.username,
+          password: accessCredentials.password,
+          mfa_secret: accessCredentials.mfa_secret,
+          role: accessRole
         })
       });
+      const data = await response.json();
+      if (data.success) {
+        localStorage.setItem('tempToken', data.token);
+        setShowAccessModal(false);
+        setAccessCredentials({ username: '', password: '', mfa_secret: '' });
+        switch (accessRole) {
+          case 'sales':
+            navigate('/sales');
+            break;
+          case 'finance':
+            navigate('/finance');
+            break;
+          case 'iwc_partner':
+            navigate('/iwc-partner');
+            break;
+          case 'investor':
+            navigate('/investor');
+            break;
+          default:
+            break;
+        }
+      } else {
+        setError(data.error || 'Failed to authenticate');
+      }
     } catch (err) {
-      console.error('Error saving income statement:', err);
+      setError('Failed to authenticate: ' + err.message);
     }
-  };
-
-  const chartData = incomeStatement ? {
-    labels: ['Revenue', 'Expenses', 'Net Income'],
-    datasets: [{
-      label: `Financials for ${new Date(selectedMonth).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })}`,
-      data: [
-        incomeStatement.revenue.total,
-        incomeStatement.expenses.total,
-        incomeStatement.netIncome
-      ],
-      backgroundColor: ['#36A2EB', '#FF6384', '#FFCE56']
-    }]
-  } : null;
-
-  const containerStyles = {
-    padding: '40px',
-    background: 'linear-gradient(135deg, #1a1a1a, #2c2c2c)',
-    minHeight: '100vh',
-    fontFamily: "'Jura', sans-serif",
-    color: '#ffffff',
-    maxWidth: '1400px',
-    margin: '0 auto',
-  };
-
-  const headingStyles = {
-    fontSize: '36px',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-    marginBottom: '40px',
-    textShadow: '2px 2px 4px rgba(0, 0, 0, 0.5)',
-    background: 'linear-gradient(45deg, #fbcf34, #24cf5f)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-  };
-
-  const sectionStyles = {
-    marginBottom: '60px',
-    background: 'rgba(255, 255, 255, 0.1)',
-    backdropFilter: 'blur(15px)',
-    padding: '32px',
-    borderRadius: '12px',
-    boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
-    border: '2px solid rgba(251, 207, 52, 0.3)',
-  };
-
-  const subHeadingStyles = {
-    fontSize: '24px',
-    fontWeight: 600,
-    color: '#ffffff',
-    marginBottom: '24px',
-    textShadow: '1px 1px 2px rgba(0, 0, 0, 0.5)',
-  };
-
-  const inputStyles = {
-    padding: '14px',
-    border: 'none',
-    borderRadius: '30px',
-    background: 'rgba(20, 20, 20, 0.5)',
-    color: '#ffffff',
-    fontSize: '16px',
-    boxShadow: 'inset 3px 3px 8px rgba(0, 0, 0, 0.3), inset -3px -3px 8px rgba(255, 255, 255, 0.1)',
-    transition: 'all 0.3s ease',
-    flex: 1,
-  };
-
-  const inputFocusStyles = {
-    boxShadow: '0 0 10px rgba(251, 207, 52, 0.5), inset 2px 2px 5px rgba(0, 0, 0, 0.2)',
-    transform: 'scale(1.02)',
-  };
-
-  const buttonStyles = {
-    padding: '14px 28px',
-    background: 'linear-gradient(45deg, #24cf5f, #0a8c0a)',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '30px',
-    cursor: 'pointer',
-    fontSize: '16px',
-    fontWeight: 600,
-    textTransform: 'uppercase',
-    boxShadow: '0 5px 20px rgba(36, 207, 95, 0.5)',
-    transition: 'all 0.3s ease',
-  };
-
-  const buttonHoverStyles = {
-    transform: 'scale(1.1)',
-    boxShadow: '0 8px 25px rgba(36, 207, 95, 0.7)',
-  };
-
-  const tableStyles = {
-    width: '100%',
-    borderCollapse: 'collapse',
-    background: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: '12px',
-    overflow: 'hidden',
-    boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)',
-  };
-
-  const thStyles = {
-    background: 'linear-gradient(45deg, #2c2c2c, #1a1a1a)',
-    color: '#ffffff',
-    padding: '16px',
-    textAlign: 'left',
-    fontSize: '16px',
-    fontWeight: 600,
-    borderBottom: '2px solid rgba(251, 207, 52, 0.3)',
-  };
-
-  const tdStyles = {
-    padding: '16px',
-    color: '#ffffff',
-    fontSize: '14px',
-    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-    transition: 'background 0.2s ease',
   };
 
   if (loading) {
     return (
       <div
         style={{
-          padding: '40px',
-          textAlign: 'center',
-          color: '#ffffff',
-          fontSize: '20px',
-          background: 'rgba(255, 255, 255, 0.1)',
-          borderRadius: '12px',
-          boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)',
-          maxWidth: '1400px',
-          margin: '40px auto',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #1a1a1a, #2c2c2c)',
+          color: '#fff',
+          fontSize: '24px'
         }}
       >
-        Loading financial data...
+        Loading admin data...
       </div>
     );
   }
@@ -345,23 +352,29 @@ function FinancePage() {
     return (
       <div
         style={{
-          padding: '40px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #1a1a1a, #2c2c2c)',
           color: '#ff4d4d',
-          textAlign: 'center',
-          fontSize: '20px',
-          background: 'rgba(255, 255, 255, 0.1)',
-          borderRadius: '12px',
-          boxShadow: '0 8px 30px rgba(0, 0, 0, 0.2)',
-          maxWidth: '1400px',
-          margin: '40px auto',
+          fontSize: '24px',
+          padding: '20px',
+          textAlign: 'center'
         }}
       >
         {error}
         <button
           onClick={fetchData}
-          style={{ ...buttonStyles, marginLeft: '20px' }}
-          onMouseOver={(e) => Object.assign(e.target.style, buttonHoverStyles)}
-          onMouseOut={(e) => Object.assign(e.target.style, buttonStyles)}
+          style={{
+            marginLeft: '20px',
+            padding: '10px 20px',
+            background: '#24cf5f',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer'
+          }}
         >
           Retry
         </button>
@@ -370,203 +383,974 @@ function FinancePage() {
   }
 
   return (
-    <div style={containerStyles}>
-      <h1 style={headingStyles}>Finance Dashboard</h1>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #1a1a1a, #2c2c2c)',
+        padding: '40px 20px',
+        fontFamily: "'Roboto', sans-serif"
+      }}
+    >
+      <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+        <h1
+          style={{
+            fontSize: '36px',
+            fontWeight: 700,
+            color: '#fff',
+            textAlign: 'center',
+            marginBottom: '40px',
+            background: 'linear-gradient(45deg, #24cf5f, #fbcf34)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent'
+          }}
+        >
+          Admin Dashboard
+        </h1>
 
-      <div style={{ ...sectionStyles, marginBottom: '40px' }}>
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center', marginBottom: '20px' }}>
-          <label htmlFor="month-select" style={{ fontSize: '16px', color: '#ffffff', textShadow: '1px 1px 2px rgba(0, 0, 0, 0.5)' }}>
-            Select Month:
-          </label>
-          <input
-            type="month"
-            id="month-select"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            style={inputStyles}
-            onFocus={(e) => Object.assign(e.target.style, inputFocusStyles)}
-            onBlur={(e) => Object.assign(e.target.style, inputStyles)}
-          />
-          <button
-            onClick={fetchData}
-            style={buttonStyles}
-            onMouseOver={(e) => Object.assign(e.target.style, buttonHoverStyles)}
-            onMouseOut={(e) => Object.assign(e.target.style, buttonStyles)}
+        {/* Role Access Buttons */}
+        <div
+          style={{
+            marginBottom: '40px',
+            padding: '30px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '15px',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
+          }}
+        >
+          <h2
+            style={{
+              fontSize: '28px',
+              fontWeight: 600,
+              color: '#fff',
+              marginBottom: '20px'
+            }}
           >
-            Refresh Data
-          </button>
-        </div>
-      </div>
-
-      <div style={sectionStyles}>
-        <h2 style={subHeadingStyles}>
-          Income Statement - {new Date(selectedMonth).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })}
-        </h2>
-
-        {chartData && (
-          <div style={{ height: '400px', marginBottom: '40px' }}>
-            <Bar
-              data={chartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: { position: 'top', labels: { color: '#ffffff', font: { size: 14 } } },
-                  title: { display: true, text: 'Financial Summary', color: '#ffffff', font: { size: 20 } }
-                },
-                scales: {
-                  y: { ticks: { color: '#ffffff' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } },
-                  x: { ticks: { color: '#ffffff' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } }
-                }
+            Access Other Roles
+          </h2>
+          <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => handleAccessRole('sales')}
+              style={{
+                padding: '12px 20px',
+                background: '#24cf5f',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '16px'
               }}
-            />
+            >
+              Sales Personnel
+            </button>
+            <button
+              onClick={() => handleAccessRole('finance')}
+              style={{
+                padding: '12px 20px',
+                background: '#24cf5f',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '16px'
+              }}
+            >
+              Finance Personnel
+            </button>
+            <button
+              onClick={() => handleAccessRole('iwc_partner')}
+              style={{
+                padding: '12px 20px',
+                background: '#24cf5f',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '16px'
+              }}
+            >
+              IWC Partner
+            </button>
+            <button
+              onClick={() => handleAccessRole('investor')}
+              style={{
+                padding: '12px 20px',
+                background: '#24cf5f',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '16px'
+              }}
+            >
+              Investor
+            </button>
+          </div>
+        </div>
+
+        {/* Access Modal */}
+        {showAccessModal && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.7)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000
+            }}
+          >
+            <div
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                padding: '30px',
+                borderRadius: '15px',
+                width: '400px',
+                maxWidth: '90%',
+                color: '#fff'
+              }}
+            >
+              <h2 style={{ fontSize: '24px', marginBottom: '20px' }}>
+                Access {accessRole.charAt(0).toUpperCase() + accessRole.slice(1)} Page
+              </h2>
+              <form onSubmit={handleAccessSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <input
+                  type="text"
+                  value={accessCredentials.username}
+                  onChange={(e) => setAccessCredentials({ ...accessCredentials, username: e.target.value })}
+                  placeholder="Username"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                  required
+                />
+                <input
+                  type="password"
+                  value={accessCredentials.password}
+                  onChange={(e) => setAccessCredentials({ ...accessCredentials, password: e.target.value })}
+                  placeholder="Password"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                  required
+                />
+                <input
+                  type="text"
+                  value={accessCredentials.mfa_secret}
+                  onChange={(e) => setAccessCredentials({ ...accessCredentials, mfa_secret: e.target.value })}
+                  placeholder="MFA Secret"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                  required
+                />
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="submit"
+                    style={{
+                      padding: '10px 20px',
+                      background: '#24cf5f',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '16px'
+                    }}
+                  >
+                    Submit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAccessModal(false)}
+                    style={{
+                      padding: '10px 20px',
+                      background: '#ff4d4d',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '16px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
-        {incomeStatement ? (
-          <div>
-            <table style={tableStyles}>
-              <thead>
-                <tr>
-                  <th style={thStyles}>Category</th>
-                  <th style={thStyles}>Amount (M)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr style={{ background: 'transparent' }} onMouseOver={(e) => (e.currentTarget.style.background = 'rgba(251, 207, 52, 0.1)')} onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}>
-                  <td style={tdStyles}><strong>Total Revenue</strong></td>
-                  <td style={tdStyles}>{incomeStatement.revenue.total.toFixed(2)}</td>
-                </tr>
-                <tr style={{ background: 'transparent' }} onMouseOver={(e) => (e.currentTarget.style.background = 'rgba(251, 207, 52, 0.1)')} onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}>
-                  <td style={tdStyles}><strong>Total Expenses</strong></td>
-                  <td style={tdStyles}>{incomeStatement.expenses.total.toFixed(2)}</td>
-                </tr>
-                <tr style={{ background: incomeStatement.netIncome >= 0 ? 'rgba(36, 207, 95, 0.1)' : 'rgba(174, 17, 0, 0.1)' }}>
-                  <td style={tdStyles}><strong>Net Income</strong></td>
-                  <td style={tdStyles}>{incomeStatement.netIncome.toFixed(2)}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <h3 style={{ ...subHeadingStyles, fontSize: '20px', marginTop: '32px' }}>Revenue Details</h3>
-            {incomeStatement.revenue.sales.length > 0 ? (
-              <table style={tableStyles}>
-                <thead>
-                  <tr>
-                    <th style={thStyles}>Date</th>
-                    <th style={thStyles}>Item</th>
-                    <th style={thStyles}>Quantity</th>
-                    <th style={thStyles}>Unit Price</th>
-                    <th style={thStyles}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {incomeStatement.revenue.sales.map((sale, index) => (
-                    <tr key={index} style={{ background: 'transparent' }} onMouseOver={(e) => (e.currentTarget.style.background = 'rgba(251, 207, 52, 0.1)')} onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}>
-                      <td style={tdStyles}>{new Date(sale.purchase_date).toLocaleDateString()}</td>
-                      <td style={tdStyles}>{sale.product_name || sale.service_name || `Product/Service ID: ${sale.product_id || sale.service_id}`}</td>
-                      <td style={tdStyles}>{sale.quantity}</td>
-                      <td style={tdStyles}>{sale.price.toFixed(2)}</td>
-                      <td style={tdStyles}>{(sale.price * sale.quantity).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p style={{ fontSize: '16px', color: '#ffffff', textAlign: 'center', padding: '20px' }}>
-                No sales recorded for this month
-              </p>
-            )}
-          </div>
-        ) : (
-          <p style={{ fontSize: '16px', color: '#ffffff', textAlign: 'center', padding: '20px' }}>
-            No financial data available for this month
-          </p>
-        )}
-      </div>
-
-      <div style={sectionStyles}>
-        <h2 style={subHeadingStyles}>Add New Expense</h2>
-        {canAddExpense ? (
-          <form onSubmit={handleAddExpense} style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Product Addition Form */}
+        <div
+          style={{
+            marginBottom: '40px',
+            padding: '30px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '15px',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
+          }}
+        >
+          <h2
+            style={{
+              fontSize: '28px',
+              fontWeight: 600,
+              color: '#fff',
+              marginBottom: '20px'
+            }}
+          >
+            Add New Product
+          </h2>
+          <form onSubmit={handleAddProduct} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
             <input
               type="text"
-              placeholder="Expense Name"
-              value={expenseName}
-              onChange={(e) => setExpenseName(e.target.value)}
+              value={newProduct.name}
+              onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+              placeholder="Product Name"
+              style={{
+                padding: '10px',
+                fontSize: '16px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                background: 'rgba(255, 255, 255, 0.1)',
+                color: '#fff'
+              }}
               required
-              style={inputStyles}
-              onFocus={(e) => Object.assign(e.target.style, inputFocusStyles)}
-              onBlur={(e) => Object.assign(e.target.style, inputStyles)}
+            />
+            <input
+              type="text"
+              value={newProduct.description}
+              onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
+              placeholder="Description"
+              style={{
+                padding: '10px',
+                fontSize: '16px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                background: 'rgba(255, 255, 255, 0.1)',
+                color: '#fff'
+              }}
             />
             <input
               type="number"
-              placeholder="Amount (M)"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-              min="0"
+              value={newProduct.price}
+              onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
+              placeholder="Price (M)"
               step="0.01"
-              style={inputStyles}
-              onFocus={(e) => Object.assign(e.target.style, inputFocusStyles)}
-              onBlur={(e) => Object.assign(e.target.style, inputStyles)}
+              style={{
+                padding: '10px',
+                fontSize: '16px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                background: 'rgba(255, 255, 255, 0.1)',
+                color: '#fff'
+              }}
+              required
             />
             <input
-              type="date"
-              value={expenseDate}
-              onChange={(e) => setExpenseDate(e.target.value)}
+              type="number"
+              value={newProduct.stock_quantity}
+              onChange={(e) => setNewProduct({ ...newProduct, stock_quantity: e.target.value })}
+              placeholder="Stock Quantity"
+              style={{
+                padding: '10px',
+                fontSize: '16px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                background: 'rgba(255, 255, 255, 0.1)',
+                color: '#fff'
+              }}
               required
-              style={inputStyles}
-              onFocus={(e) => Object.assign(e.target.style, inputFocusStyles)}
-              onBlur={(e) => Object.assign(e.target.style, inputStyles)}
             />
             <button
               type="submit"
-              style={buttonStyles}
-              onMouseOver={(e) => Object.assign(e.target.style, buttonHoverStyles)}
-              onMouseOut={(e) => Object.assign(e.target.style, buttonStyles)}
+              style={{
+                padding: '12px 20px',
+                background: '#24cf5f',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '16px'
+              }}
             >
-              Add Expense
+              Add Product
             </button>
           </form>
-        ) : (
-          <p style={{ fontSize: '16px', color: '#ffffff', textAlign: 'center', padding: '20px' }}>
-            You do not have permission to add expenses.
-          </p>
-        )}
-      </div>
+        </div>
 
-      <div style={sectionStyles}>
-        <h2 style={subHeadingStyles}>All Expenses</h2>
-        {expenses.length > 0 ? (
-          <table style={tableStyles}>
-            <thead>
-              <tr>
-                <th style={thStyles}>ID</th>
-                <th style={thStyles}>Expense Name</th>
-                <th style={thStyles}>Amount (M)</th>
-                <th style={thStyles}>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.map((expense) => (
-                <tr key={expense.id} style={{ background: 'transparent' }} onMouseOver={(e) => (e.currentTarget.style.background = 'rgba(251, 207, 52, 0.1)')} onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}>
-                  <td style={tdStyles}>{expense.id}</td>
-                  <td style={tdStyles}>{expense.expense_name}</td>
-                  <td style={tdStyles}>{parseFloat(expense.amount).toFixed(2)}</td>
-                  <td style={tdStyles}>{new Date(expense.expense_date).toLocaleDateString()}</td>
+        {/* Products Table */}
+        <div
+          style={{
+            marginBottom: '40px',
+            padding: '30px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '15px',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
+          }}
+        >
+          <h2
+            style={{
+              fontSize: '28px',
+              fontWeight: 600,
+              color: '#fff',
+              marginBottom: '20px'
+            }}
+          >
+            Products
+          </h2>
+          {products.length > 0 ? (
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                background: 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '10px',
+                overflow: 'hidden',
+                boxShadow: '0 5px 20px rgba(0, 0, 0, 0.3)'
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: 'linear-gradient(45deg, #24cf5f, #1ab54a)',
+                    color: '#fff'
+                  }}
+                >
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>ID</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Name</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Price (M)</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Stock</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p style={{ fontSize: '16px', color: '#ffffff', textAlign: 'center', padding: '20px' }}>
-            No expenses found
-          </p>
+              </thead>
+              <tbody>
+                {products.map((product) => (
+                  <tr
+                    key={product.id}
+                    style={{
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+                    }}
+                  >
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{product.id}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{product.name}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>
+                      {parseFloat(product.price.toString()).toFixed(2)}
+                    </td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{product.stock_quantity}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>
+                      <button
+                        onClick={() => setEditProduct(product)}
+                        style={{
+                          padding: '8px 12px',
+                          background: '#fbcf34',
+                          color: '#000',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          marginRight: '10px'
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProduct(product.id)}
+                        style={{
+                          padding: '8px 12px',
+                          background: '#ff4d4d',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p
+              style={{
+                textAlign: 'center',
+                color: '#fff',
+                fontSize: '18px',
+                padding: '20px'
+              }}
+            >
+              No products found
+            </p>
+          )}
+        </div>
+
+        {/* Service Addition Form */}
+        <div
+          style={{
+            marginBottom: '40px',
+            padding: '30px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '15px',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
+          }}
+        >
+          <h2
+            style={{
+              fontSize: '28px',
+              fontWeight: 600,
+              color: '#fff',
+              marginBottom: '20px'
+            }}
+          >
+            Add New Service
+          </h2>
+          <form onSubmit={handleAddService} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <input
+              type="text"
+              value={newService.name}
+              onChange={(e) => setNewService({ ...newService, name: e.target.value })}
+              placeholder="Service Name"
+              style={{
+                padding: '10px',
+                fontSize: '16px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                background: 'rgba(255, 255, 255, 0.1)',
+                color: '#fff'
+              }}
+              required
+            />
+            <input
+              type="text"
+              value={newService.description}
+              onChange={(e) => setNewService({ ...newService, description: e.target.value })}
+              placeholder="Description"
+              style={{
+                padding: '10px',
+                fontSize: '16px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                background: 'rgba(255, 255, personally255, 0.1)',
+                color: '#fff'
+              }}
+            />
+            <input
+              type="number"
+              value={newService.price}
+              onChange={(e) => setNewService({ ...newService, price: e.target.value })}
+              placeholder="Price (M)"
+              step="0.01"
+              style={{
+                padding: '10px',
+                fontSize: '16px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                background: 'rgba(255, 255, 255, 0.1)',
+                color: '#fff'
+              }}
+              required
+            />
+            <button
+              type="submit"
+              style={{
+                padding: '12px 20px',
+                background: '#24cf5f',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '16px'
+              }}
+            >
+              Add Service
+            </button>
+          </form>
+        </div>
+
+        {/* Services Table */}
+        <div
+          style={{
+            marginBottom: '40px',
+            padding: '30px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '15px',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
+          }}
+        >
+          <h2
+            style={{
+              fontSize: '28px',
+              fontWeight: 600,
+              color: '#fff',
+              marginBottom: '20px'
+            }}
+          >
+            Services
+          </h2>
+          {services.length > 0 ? (
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                background: 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '10px',
+                overflow: 'hidden',
+                boxShadow: '0 5px 20px rgba(0, 0, 0, 0.3)'
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: 'linear-gradient(45deg, #24cf5f, #1ab54a)',
+                    color: '#fff'
+                  }}
+                >
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>ID</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Name</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Description</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Price (M)</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {services.map((service) => (
+                  <tr
+                    key={service.id}
+                    style={{
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+                    }}
+                  >
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{service.id}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{service.name}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{service.description}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>
+                      {parseFloat(service.price.toString()).toFixed(2)}
+                    </td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>
+                      <button
+                        onClick={() => setEditService(service)}
+                        style={{
+                          padding: '8px 12px',
+                          background: '#fbcf34',
+                          color: '#000',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          marginRight: '10px'
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteService(service.id)}
+                        style={{
+                          padding: '8px 12px',
+                          background: '#ff4d4d',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p
+              style={{
+                textAlign: 'center',
+                color: '#fff',
+                fontSize: '18px',
+                padding: '20px'
+              }}
+            >
+              No services found
+            </p>
+          )}
+        </div>
+
+        {/* Edit Product Modal */}
+        {editProduct && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.7)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000
+            }}
+          >
+            <div
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                padding: '30px',
+                borderRadius: '15px',
+                width: '400px',
+                maxWidth: '90%',
+                color: '#fff'
+              }}
+            >
+              <h2 style={{ fontSize: '24px', marginBottom: '20px' }}>Edit Product</h2>
+              <form onSubmit={handleEditProduct} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <input
+                  type="text"
+                  value={editProduct.name}
+                  onChange={(e) => setEditProduct({ ...editProduct, name: e.target.value })}
+                  placeholder="Product Name"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                  required
+                />
+                <input
+                  type="text"
+                  value={editProduct.description}
+                  onChange={(e) => setEditProduct({ ...editProduct, description: e.target.value })}
+                  placeholder="Description"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                />
+                <input
+                  type="number"
+                  value={editProduct.price}
+                  onChange={(e) => setEditProduct({ ...editProduct, price: e.target.value })}
+                  placeholder="Price (M)"
+                  step="0.01"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                  required
+                />
+                <input
+                  type="number"
+                  value={editProduct.stock_quantity}
+                  onChange={(e) => setEditProduct({ ...editProduct, stock_quantity: e.target.value })}
+                  placeholder="Stock Quantity"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                  required
+                />
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="submit"
+                    style={{
+                      padding: '10px 20px',
+                      background: '#24cf5f',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '16px'
+                    }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditProduct(null)}
+                    style={{
+                      padding: '10px 20px',
+                      background: '#ff4d4d',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '16px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         )}
+
+        {/* Edit Service Modal */}
+        {editService && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.7)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000
+            }}
+          >
+            <div
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                padding: '30px',
+                borderRadius: '15px',
+                width: '400px',
+                maxWidth: '90%',
+                color: '#fff'
+              }}
+            >
+              <h2 style={{ fontSize: '24px', marginBottom: '20px' }}>Edit Service</h2>
+              <form onSubmit={handleEditService} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <input
+                  type="text"
+                  value={editService.name}
+                  onChange={(e) => setEditService({ ...editService, name: e.target.value })}
+                  placeholder="Service Name"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                  required
+                />
+                <input
+                  type="text"
+                  value={editService.description}
+                  onChange={(e) => setEditService({ ...editService, description: e.target.value })}
+                  placeholder="Description"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                />
+                <input
+                  type="number"
+                  value={editService.price}
+                  onChange={(e) => setEditService({ ...editService, price: e.target.value })}
+                  placeholder="Price (M)"
+                  step="0.01"
+                  style={{
+                    padding: '10px',
+                    fontSize: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff'
+                  }}
+                  required
+                />
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="submit"
+                    style={{
+                      padding: '10px 20px',
+                      background: '#24cf5f',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '16px'
+                    }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditService(null)}
+                    style={{
+                      padding: '10px 20px',
+                      background: '#ff4d4d',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '16px'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Customer Queries Section */}
+        <div
+          style={{
+            marginBottom: '40px',
+            padding: '30px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '15px',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.2)'
+          }}
+        >
+          <h2
+            style={{
+              fontSize: '28px',
+              fontWeight: 600,
+              color: '#fff',
+              marginBottom: '20px'
+            }}
+          >
+            Customer Queries
+          </h2>
+          {queries.length > 0 ? (
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                background: 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '10px',
+                overflow: 'hidden',
+                boxShadow: '0 5px 20px rgba(0, 0, 0, 0.3)'
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    background: 'linear-gradient(45deg, #24cf5f, #1ab54a)',
+                    color: '#fff'
+                  }}
+                >
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>ID</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Name</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Email</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Message</th>
+                  <th style={{ padding: '14px', textAlign: 'left', fontSize: '16px' }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {queries.map((query) => (
+                  <tr
+                    key={query.id}
+                    style={{
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+                    }}
+                  >
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{query.id}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{query.name}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{query.email}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{query.message}</td>
+                    <td style={{ padding: '14px', color: '#fff', fontSize: '15px' }}>{query.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p
+              style={{
+                textAlign: 'center',
+                color: '#fff',
+                fontSize: '18px',
+                padding: '20px'
+              }}
+            >
+              No queries found
+            </p>
+          )}
+        </div>
+
+        {/* Backup Buttons */}
+        <div
+          style={{
+            padding: '30px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '15px',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            display: 'flex',
+            gap: '20px',
+            justifyContent: 'center'
+          }}
+        >
+          <button
+            onClick={handleBackupSales}
+            style={{
+              padding: '12px 20px',
+              background: '#24cf5f',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '16px'
+            }}
+          >
+            Backup Sales
+          </button>
+          <button
+            onClick={handleBackupQueries}
+            style={{
+              padding: '12px 20px',
+              background: '#24cf5f',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '16px'
+            }}
+          >
+            Backup Queries
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-export default FinancePage;
+export default AdminPage;
